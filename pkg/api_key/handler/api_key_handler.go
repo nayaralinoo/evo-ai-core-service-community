@@ -142,6 +142,7 @@ func (h *apiKeyHandler) Create(c *gin.Context) {
 		Name:     req.Name,
 		Provider: req.Provider,
 		Key:      encryptedKey,
+		BaseURL:  req.BaseURL,
 	}
 
 	createdApiKey, err := h.apiKeyService.Create(c.Request.Context(), apiKey)
@@ -243,25 +244,46 @@ func (h *apiKeyHandler) Update(c *gin.Context) {
 		return
 	}
 
-	// Validate that at least one key was provided
-	actualKey := req.GetKey()
-	if actualKey == "" {
-		code, message, httpCode := errors.HandleError(fmt.Errorf("key or key_value is required"))
-		response.ErrorResponse(c, code, message, nil, httpCode)
-		return
-	}
-
-	encryptedKey, err := h.encryptKey(actualKey)
+	// Buscar chave existente para preservar campos não alterados
+	existingKey, err := h.apiKeyService.GetByID(c.Request.Context(), id)
 	if err != nil {
 		code, message, httpCode := errors.HandleError(err)
 		response.ErrorResponse(c, code, message, nil, httpCode)
 		return
 	}
 
+	// Construir update preservando valores existentes quando não fornecidos
 	apiKey := &model.ApiKey{
-		Name:     req.Name,
-		Provider: req.Provider,
-		Key:      encryptedKey,
+		Name:     existingKey.Name,
+		Provider: existingKey.Provider,
+		Key:      existingKey.Key,
+		BaseURL:  existingKey.BaseURL,
+		IsActive: existingKey.IsActive,
+	}
+
+	if req.Name != "" {
+		apiKey.Name = req.Name
+	}
+	if req.Provider != "" {
+		apiKey.Provider = req.Provider
+	}
+	if req.IsActive != nil {
+		apiKey.IsActive = *req.IsActive
+	}
+	if req.BaseURL != "" {
+		apiKey.BaseURL = req.BaseURL
+	}
+
+	// Only encrypt new key if provided
+	actualKey := req.GetKey()
+	if actualKey != "" {
+		encryptedKey, err := h.encryptKey(actualKey)
+		if err != nil {
+			code, message, httpCode := errors.HandleError(err)
+			response.ErrorResponse(c, code, message, nil, httpCode)
+			return
+		}
+		apiKey.Key = encryptedKey
 	}
 
 	updatedApiKey, err := h.apiKeyService.Update(c.Request.Context(), apiKey, id)
